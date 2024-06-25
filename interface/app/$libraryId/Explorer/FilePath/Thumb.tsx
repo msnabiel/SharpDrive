@@ -1,5 +1,7 @@
 import { getIcon, getIconByName } from '@sd/assets/util';
 import clsx from 'clsx';
+import { resolveResource } from '@tauri-apps/api/path';
+//import { fs } from '@tauri-apps/api';
 import {
 	forwardRef,
 	HTMLAttributes,
@@ -7,7 +9,8 @@ import {
 	useImperativeHandle,
 	useMemo,
 	useRef,
-	useState
+	useState,
+	useEffect
 } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { getItemFilePath, useLibraryContext, type ExplorerItem } from '@sd/client';
@@ -21,6 +24,33 @@ import LayeredFileIcon from './LayeredFileIcon';
 import { Original } from './Original';
 import { useFrame } from './useFrame';
 import { useBlackBars, useSize } from './utils';
+import { Tooltip } from '@sd/ui'; // Make sure this path is correct
+import { getExplorerItemData } from '@sd/client/src/'; // Make sure this path is correct
+
+async function getFileDetails(filename: string) {
+	try {
+	  const response = await fetch('http://127.0.0.1:5000');
+	  if (response.status === 404) {
+		console.log('File details not found');
+	}
+	  else if (!response.ok) {
+		throw new Error(`HTTP error! status: ${response.status}`);
+	  }
+	  else {
+		console.log('File details found status:', response.status);
+		console.log(response)
+	  }
+	  const data = await response.json();
+	  console.log('Fetched data:', data); // Log the entire data
+	  console.log('Filename:', filename); // Log the filename we're looking for
+	  const details = data[filename];
+	  console.log('Found details:', details); // Log the details we found (or null if not found)
+	  return details || null;
+	} catch (error) {
+	  console.error('Error fetching file details:', error);
+	  return null;
+	}
+  }
 
 export interface ThumbProps {
 	data: ExplorerItem;
@@ -50,7 +80,7 @@ export const FileThumb = forwardRef<HTMLImageElement, ThumbProps>((props, ref) =
 	const platform = usePlatform();
 	const frame = useFrame();
 
-	const itemData = useExplorerItemData(props.data);
+	const itemData = getExplorerItemData(props.data);
 	const filePath = getItemFilePath(props.data);
 
 	const { library } = useLibraryContext();
@@ -58,6 +88,31 @@ export const FileThumb = forwardRef<HTMLImageElement, ThumbProps>((props, ref) =
 	const [loadState, setLoadState] = useState<{
 		[K in 'original' | 'thumbnail' | 'icon']: 'notLoaded' | 'loaded' | 'error';
 	}>({ original: 'notLoaded', thumbnail: 'notLoaded', icon: 'notLoaded' });
+
+	const [fileDetails, setFileDetails] = useState<{ date: string; company: string; summary: string } | null>(null);
+
+	useEffect(() => {
+		const fetchDetails = async () => {
+			console.log('Fetching details for:', itemData.name);
+			if (itemData.name) {
+				console.log('Fetching details for:', itemData.name);
+				try {
+					const details = await getFileDetails(itemData.name);
+					if (details) {
+						console.log('Fetched details:', details);
+						setFileDetails(details);
+					} else {
+						console.log('No details found for:', itemData.name);
+					}
+				} catch (error) {
+					console.error('Error fetching details for:', itemData.name, error);
+				}
+			} else {
+				console.log('No itemData.name available');
+			}
+		};
+		fetchDetails();
+	}, [itemData.name]);
 
 	const childClassName = 'max-h-full max-w-full object-contain';
 	const frameClassName = clsx(frame.className, props.frameClassName);
@@ -95,7 +150,6 @@ export const FileThumb = forwardRef<HTMLImageElement, ThumbProps>((props, ref) =
 				if (itemData.customIcon) return getIconByName(itemData.customIcon as any, isDark);
 
 				return getIcon(
-					// itemData.isDir || parent?.type === 'Node' ? 'Folder' :
 					itemData.kind,
 					isDark,
 					itemData.extension,
@@ -159,7 +213,7 @@ export const FileThumb = forwardRef<HTMLImageElement, ThumbProps>((props, ref) =
 								? frameClassName
 								: null
 						)}
-						crossOrigin="anonymous" // Here it is ok, because it is not a react attr
+						crossOrigin="anonymous"
 						blackBars={props.blackBars && itemData.kind === 'Video' && !props.cover}
 						blackBarsSize={props.blackBarsSize}
 						extension={
@@ -190,47 +244,56 @@ export const FileThumb = forwardRef<HTMLImageElement, ThumbProps>((props, ref) =
 		}
 	})();
 
-	return (
-		<div
-			key={thumbType.variant}
-			style={{
-				...(props.size
-					? { maxWidth: props.size, width: props.size, height: props.size }
-					: {})
-			}}
-			className={clsx(
-				'relative flex shrink-0 items-center justify-center',
-				// !loaded && 'invisible',
-				!props.size && 'size-full',
-				props.cover && 'overflow-hidden',
-				props.className
-			)}
-		>
-			{props.loadOriginal ? (
-				<ErrorBoundary fallback={thumbnail}>
-					<Original
-						onLoad={() => onLoad('original')}
-						onError={(e) => onError('original', e)}
-						filePath={filePath}
-						className={className}
-						frameClassName={frameClassName}
-						itemData={itemData}
-						isDark={isDark}
-						childClassName={childClassName}
-						size={props.size}
-						magnification={props.magnification}
-						mediaControls={props.mediaControls}
-						frame={props.frame}
-						isSidebarPreview={props.isSidebarPreview}
-						pauseVideo={props.pauseVideo}
-						blackBars={props.blackBars}
-						blackBarsSize={props.blackBarsSize}
-					/>
-				</ErrorBoundary>
-			) : (
-				thumbnail
-			)}
+	const tooltipContent = fileDetails ? (
+		<div>
+			<p>Date: {fileDetails.date}</p>
+			<p>Company: {fileDetails.company}</p>
+			<p>Summary: {fileDetails.summary}</p>
 		</div>
+	) : 'No details available';
+
+	return (
+		<Tooltip label={tooltipContent}>
+			<div
+				key={thumbType.variant}
+				style={{
+					...(props.size
+						? { maxWidth: props.size, width: props.size, height: props.size }
+						: {})
+				}}
+				className={clsx(
+					'relative flex shrink-0 items-center justify-center',
+					!props.size && 'size-full',
+					props.cover && 'overflow-hidden',
+					props.className
+				)}
+			>
+				{props.loadOriginal ? (
+					<ErrorBoundary fallback={thumbnail}>
+						<Original
+							onLoad={() => onLoad('original')}
+							onError={(e) => onError('original', e)}
+							filePath={filePath}
+							className={className}
+							frameClassName={frameClassName}
+							itemData={itemData}
+							isDark={isDark}
+							childClassName={childClassName}
+							size={props.size}
+							magnification={props.magnification}
+							mediaControls={props.mediaControls}
+							frame={props.frame}
+							isSidebarPreview={props.isSidebarPreview}
+							pauseVideo={props.pauseVideo}
+							blackBars={props.blackBars}
+							blackBarsSize={props.blackBarsSize}
+						/>
+					</ErrorBoundary>
+				) : (
+					thumbnail
+				)}
+			</div>
+		</Tooltip>
 	);
 });
 
