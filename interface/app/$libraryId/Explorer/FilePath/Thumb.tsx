@@ -29,7 +29,7 @@ import { getExplorerItemData } from '@sd/client/src/'; // Make sure this path is
 
 async function getFileDetails(filename: string) {
 	try {
-	  const response = await fetch('http://127.0.0.1:5000');
+	  const response = await fetch('http://127.0.0.1:8007/detail');
 	  if (response.status === 404) {
 		console.log('File details not found');
 	}
